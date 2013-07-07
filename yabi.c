@@ -73,6 +73,8 @@ int bf_step( bf_code_t *bf ){
 	if ( bf->ip < bf->codesize )
 		bf->ip++;
 
+	bf->execed++;
+
 	return 0;
 }
 
@@ -84,9 +86,12 @@ int bf_run( bf_code_t *bf ){
 }
 
 void bf_help( ){
-	printf( "usage: yabi [-f file] [-d]\n"
+	printf( "usage: yabi [-f file] [-dh]\n"
 		"	-f  specify input code file\n"
-		"	-d  debug the program instead of run it\n" );
+		"	-i  file to use as input for program\n"
+		"	-o  file to send program output to\n"
+		"	-d  debug the program instead of run it\n" 
+		"	-h  print this help and exit\n" );
 	return;
 }
 
@@ -98,17 +103,25 @@ int main( int argc, char *argv[] ){
 	FILE *fp;
 
 	char *filename = NULL;
+	char *p_in = NULL;
+	char *p_out = NULL;
 	char ch;
 	char debug = 0;
 	int i = 0;
 
-	while (( ch = getopt( argc, argv, "f:dh" )) != -1 && i++ < argc ){
+	while (( ch = getopt( argc, argv, "f:i:o:dh" )) != -1 && i++ < argc ){
 		switch( ch ){
 			case 'f':
 				filename = argv[++i];
 				break;
 			case 'd':
 				debug = 1;
+				break;
+			case 'i':
+				p_in = argv[++i];
+				break;
+			case 'o':
+				p_out = argv[++i];
 				break;
 			case 'h':
 				bf_help( );
@@ -126,7 +139,7 @@ int main( int argc, char *argv[] ){
 		die( 2, "Could not stat \"%s\"\n", filename );
 
 	if (( fp = fopen( filename, "r" )) == NULL )
-		die( 3, "Could not open \"%s\"\n", filename );
+		die( 3, "Could not open program file \"%s\"\n", filename );
 
 	bf = new( bf_code_t );
 	bf->codesize = sb.st_size;
@@ -134,14 +147,20 @@ int main( int argc, char *argv[] ){
 	fread( bf->code, bf->codesize, 1, fp );
 	fclose( fp );
 
+	bf->in = stdin;
+	bf->out = stdout;
+
+	if ( p_in && !( bf->in = fopen( p_in, "r" )))
+		die( 4, "Could not open input file \"%s\"\n", p_in );
+
+	if ( p_out && !( bf->out = fopen( p_out, "w" )))
+		die( 4, "Could not open output file \"%s\"\n", p_out );
+
 	bf->memsize = d_memsize;
 	bf->mem = new( char[ d_memsize + 1 ]);
 
 	bf->maxloops = d_loops;
 	bf->lp = new( int[ d_loops ]);
-
-	bf->in = stdin;
-	bf->out = stdout;
 
 	if ( !debug )
 		bf_run( bf );

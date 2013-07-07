@@ -4,6 +4,7 @@ typedef int (*bfid_func_t)( bf_code_t *dbf, int argc, char **argv );
 typedef struct bfid_command {
 	char *name;
 	char *help;
+	char *usage;
 	bfid_func_t func;
 } bfid_cmd_t;
 
@@ -11,17 +12,25 @@ int bfid_initialized = 0;
 int bfid_cmd_no = 0;
 bfid_cmd_t *bfid_cmds;
 
+bfid_brkp_t *brkp_list = NULL;
+int brkp_no = 0;
+
+int interrupted = 0;
+
 int bfid_step( bf_code_t *dbf, int argc, char **argv );
 int bfid_dump( bf_code_t *dbf, int argc, char **argv );
 int bfid_exit( bf_code_t *dbf, int argc, char **argv );
 int bfid_cont( bf_code_t *dbf, int argc, char **argv );
 int bfid_status( bf_code_t *dbf, int argc, char **argv );
-int bfid_set( bf_code_t *dbf, int argc, char **argv ); int bfid_help( bf_code_t *dbf, int argc, char **argv );
+int bfid_set( bf_code_t *dbf, int argc, char **argv ); 
+int bfid_help( bf_code_t *dbf, int argc, char **argv );
 int bfid_hook( bf_code_t *dbf, int argc, char **argv );
 int bfid_disas( bf_code_t *dbf, int argc, char **argv );
 int bfid_trace( bf_code_t *dbf, int argc, char **argv );
+int bfid_break( bf_code_t *dbf, int argc, char **argv );
+int bfid_clear( bf_code_t *dbf, int argc, char **argv );
+int bfid_script( bf_code_t *dbf, int argc, char **argv );
 
-int interrupted = 0;
 int debug_signal( int s );
 
 int debug_signal( int s ){
@@ -30,32 +39,111 @@ int debug_signal( int s ){
 	return 0;
 }
 
-void register_bfid_func( char *name, char *help, bfid_func_t function ){
+void register_bfid_func( char *name, char *help, char *usage, bfid_func_t function ){
 	if ( bfid_cmd_no >= 32 )
 		return;
 
 	bfid_cmds[ bfid_cmd_no ].name = name;
 	bfid_cmds[ bfid_cmd_no ].help = help;
+	bfid_cmds[ bfid_cmd_no ].usage = usage;
 	bfid_cmds[ bfid_cmd_no ].func = function;
 	
 	bfid_cmd_no++;
 }
 
+// temporary fixed value for now
+#define BP_SIZE 8
+
+void add_breakp( bfid_brkp_t **b, int type, int val ){
+	bfid_brkp_t *temp, *move, *prev;
+
+	temp = new( bfid_brkp_t );
+	temp->val = val;
+	temp->i = brkp_no;
+	temp->type = type;
+	brkp_no++;
+
+	if ( *b ){
+		for ( prev = 0, move = *b; move->next; prev = move, move = move->next );
+		move->next = temp;
+		move->prev = prev;
+	} else 
+		*b = temp;
+
+	//printf( "Added instruction breakpoint %d.\n", temp->i );
+
+	return;
+}
+
+void del_breakp( bfid_brkp_t **b, int val ){
+	bfid_brkp_t *temp, *move;
+	int found = 0;
+
+	if ( !*b ){
+		printf( "No breakpoints.\n" );
+		return;
+	}
+
+	for ( temp = *b; temp; temp = temp->next ){
+		if ( temp->i == val ){
+			if ( temp->prev )
+				temp->prev->next = temp->next;
+			if ( temp->next )
+				temp->next->prev = temp->prev;
+
+			if ( temp == *b )
+				*b = temp->next; 
+
+			free( temp );
+
+			//printf( "Deleted instruction breakpoint %d.\n", val );
+			found = 1;
+			break;
+		}
+	}
+	
+	if ( !found )
+		printf( "Invalid breakpoint.\n" );
+
+	return;
+}
+
 void bfid_init( ){
 	bfid_cmds = new( bfid_cmd_t[32] );
 	
-	register_bfid_func( "step", "step through code instructions", bfid_step );
-	register_bfid_func( "dump", "dump program memory", bfid_dump );
-	register_bfid_func( "cont", "continue program execution in the debugger", bfid_cont );
+	// look at program data
+	register_bfid_func( "dump", "dump program memory", 
+			"dump [amount] | dump [start] [end]", bfid_dump );
+	register_bfid_func( "disas", "disassemble program instructions", 
+			"disas [amount] | disas [start] [end] [(optional)filter string]", bfid_disas );
+	register_bfid_func( "status", "information about the program's state", 
+			"status", bfid_status );
+
+	// manage program flow
+	register_bfid_func( "break", "set program breakpoints", 
+			"break [type] [value]", bfid_break );
+	register_bfid_func( "clear", "remove program breakpoints", 
+			"clear [value]", bfid_clear );
+	register_bfid_func( "hook", "hook onto program locations (temporary break point)", 
+			"hook [type] [value]", bfid_hook );
+	register_bfid_func( "trace", "trace program structures", 
+			"trace [type]", bfid_trace );
+	register_bfid_func( "cont", "continue program execution in the debugger", 
+			"cont", bfid_cont );
+	register_bfid_func( "step", "step through code instructions", 
+			"step [amount]", bfid_step );
+	register_bfid_func( "set", "set program variables", 
+			"set [variable] [value]", bfid_set );
+
+	register_bfid_func( "script", "run a debugger script", 
+			"script [filename]", bfid_script );
+
 	register_bfid_func( "exit", "exit the debugger. Resumes execution if "
-				"the debugger was started from the code.", bfid_exit );
-	register_bfid_func( "status", "information about the program's state", bfid_status );
-	register_bfid_func( "set", "set program variables", bfid_set );
-	register_bfid_func( "hook", "hook onto program locations", bfid_hook );
-	register_bfid_func( "disas", "disassemble program instructions", bfid_disas );
-	register_bfid_func( "trace", "trace program structures", bfid_trace );
-	register_bfid_func( "help", "Get help about debugger commands", bfid_help );
-	register_bfid_func( "man", "Get help about debugger commands", bfid_help );
+			"the debugger was started from the code.", "exit", bfid_exit );
+
+	// help function
+	register_bfid_func( "help", "Get help for debugger commands", "help [command]", bfid_help );
+	register_bfid_func( "man", "Get help for debugger commands", "man [command]", bfid_help );
 }
 
 int bfid_execcmd( bf_code_t *dbf, char *str ){
@@ -94,6 +182,7 @@ int bf_debugger( bf_code_t *bf ){
 	//memcpy( dbf, bf, sizeof( bf_code_t ));
 	char buf[256];
 	int lret = 0;
+	bfid_brkp_t *temp;
 
 	if ( !bfid_initialized ){
 		bfid_init( );
@@ -121,9 +210,27 @@ int bf_debugger( bf_code_t *bf ){
 			if (( lret = bfid_execcmd( dbf, buf )) < 0 )
 				printf( "Unknown command.\n" );
 		} else {
-			if ( dbf->ip < dbf->codesize )
+			if ( dbf->ip < dbf->codesize ){
 				bf_step( dbf );
-			else {
+
+				for ( temp = brkp_list; temp; temp = temp->next ){
+					if ( temp->type == BRK_IP && temp->val == dbf->ip ){
+						printf( "Caught breakpoint %d: ip=%d\n", temp->i, dbf->ip );
+						interrupted = 1;
+						break;
+					} else if ( temp->type == BRK_MEM && temp->val == dbf->ptr ){
+						printf( "Caught breakpoint %d: ptr=%d\n", temp->i, dbf->ptr );
+						interrupted = 1;
+						break;
+					} else if ( temp->type == BRK_INSTR && 
+							temp->val == dbf->code[ dbf->ip ]){
+						printf( "Caught breakpoint %d: instruction='%c'\n", temp->i, temp->val );
+						interrupted = 1;
+						break;
+					}
+				}
+
+			} else {
 				printf( "Program terminated.\n" );
 				interrupted = 1;
 			}
@@ -154,7 +261,7 @@ int bfid_step( bf_code_t *dbf, int argc, char **argv ){
 
 	//printf( "stepping for %d\n", i );
 	while( i-- ){
-		printf( "[%c] stepping...\n", c );
+		//printf( "[%c] stepping...\n", c );
 		bf_step( dbf );
 	}
 
@@ -191,7 +298,7 @@ int bfid_dump( bf_code_t *dbf, int argc, char **argv ){
 
 int bfid_exit( bf_code_t *dbf, int argc, char **argv ){
 	dbf->debugging = 0;
-	printf( "resuming...\n" );
+	//printf( "resuming...\n" );
 	//signal( SIGINT, SIG_DFL );
 
 	return 0;
@@ -204,7 +311,8 @@ int bfid_cont( bf_code_t *dbf, int argc, char **argv ){
 }
 
 int bfid_status( bf_code_t *dbf, int argc, char **argv ){
-	printf( "\tip: %d, ptr: %d, depth: %d\n", dbf->ip, dbf->ptr, dbf->depth );
+	printf( "\tip: %d, ptr: %d, depth: %d, total insructions executed: %d\n", 
+		dbf->ip, dbf->ptr, dbf->depth, dbf->execed );
 
 	return 0;
 }
@@ -246,23 +354,25 @@ int bfid_hook( bf_code_t *dbf, int argc, char **argv ){
 		return 2;
 	}
 
+	interrupted = 0;
 	switch ( type ){
 		case 1:
 			val = atoi( argv[2] );
-			while ( dbf->ip != val && dbf->ip < dbf->codesize )
+			while ( dbf->ip != val && dbf->ip < dbf->codesize && !interrupted )
 				bf_step( dbf );
 			break;
 		case 2:
 			val = argv[2][0];
-			while ( dbf->code[ dbf->ip ] != val && dbf->ip < dbf->codesize )
+			while ( dbf->code[ dbf->ip ] != val && dbf->ip < dbf->codesize && !interrupted )
 				bf_step( dbf );
 			break;
 		case 3:
 			val = atoi( argv[2] );
-			while( dbf->ptr != val && dbf->ip != dbf->codesize )
+			while( dbf->ptr != val && dbf->ip != dbf->codesize && !interrupted )
 				bf_step( dbf );
 			break;
 	}
+	interrupted = 1;
 
 	return 0;
 }
@@ -360,7 +470,76 @@ int bfid_trace( bf_code_t *dbf, int argc, char **argv ){
 
 	return 0;
 }
-	
+
+int bfid_break( bf_code_t *dbf, int argc, char **argv ){
+	if ( argc < 3 && !( argc == 2 && strcmp( argv[1], "list" ) == 0)){
+		printf( "usage: %s [type] [value]\n", argv[0] );
+		printf( "Type can be \"ip\", a numeric ip position, or \"mem\", a memory address.\n"
+			"\"list\" can be used to list all breakpoints.\n" );
+
+		return 1;
+	}
+
+	int type = 0, val = 0;
+
+	if ( strcmp( argv[1], "ip" ) == 0 ){
+		val = atoi( argv[2] );
+
+		add_breakp( &brkp_list, BRK_IP, val );
+	} else if ( strcmp( argv[1], "mem" ) == 0 ){
+		val = atoi( argv[2] );
+
+		add_breakp( &brkp_list, BRK_MEM, val );
+	} else if ( strcmp( argv[1], "in" ) == 0 ){
+		val = argv[2][0];
+
+		add_breakp( &brkp_list, BRK_INSTR, val );
+	} else if ( strcmp( argv[1], "list" ) == 0 ){
+		bfid_brkp_t *temp;
+		char *tstr[] = { "ip", "mem", "in", "wut" };
+		for ( temp = brkp_list; temp; temp = temp->next )
+			printf( "[%d]\t%s:\t%d\n", temp->i, tstr[ temp->type ], temp->val );
+
+	} else {
+		printf( "Invalid type.\n" );
+		return 2;
+	}
+
+	return 0;
+}
+
+int bfid_clear( bf_code_t *dbf, int argc, char **argv ){
+	if ( argc < 2 ){
+		printf( "usage: %s [value]\n", argv[0] );
+		return 1;
+	}
+
+	int val = 0;
+
+	val = atoi( argv[1] );
+	del_breakp( &brkp_list, val );
+
+	return 0;
+}
+
+int bfid_script( bf_code_t *dbf, int argc, char **argv ){
+	if ( argc < 2 )
+		printf( "usage: %s [filename]\n", argv[0] );
+
+	FILE *fp;
+
+	if (!( fp = fopen( argv[1], "r" )))
+		return 1;
+
+	char buf[256];
+	while ( !feof( fp )){
+		fgets( buf, 256, fp );
+		bfid_execcmd( dbf, buf );
+		printf( "[debug statement]\n" );
+	}
+
+	return 0;
+}
 
 int bfid_help( bf_code_t *dbf, int argc, char **argv ){
 	int i;
@@ -376,6 +555,7 @@ int bfid_help( bf_code_t *dbf, int argc, char **argv ){
 	for ( i = 0; i < bfid_cmd_no; i++ ){
 		if ( strcmp( argv[1], bfid_cmds[i].name ) == 0 ){
 			printf( "%s\n", bfid_cmds[i].help );
+			printf( "Usage: %s\n", bfid_cmds[i].usage );
 			break;
 		}
 	}
