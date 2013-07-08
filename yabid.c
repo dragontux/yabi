@@ -298,8 +298,7 @@ int bfid_dump( bf_code_t *dbf, int argc, char **argv ){
 
 int bfid_exit( bf_code_t *dbf, int argc, char **argv ){
 	dbf->debugging = 0;
-	//printf( "resuming...\n" );
-	//signal( SIGINT, SIG_DFL );
+	signal( SIGINT, SIG_DFL );
 
 	return 0;
 }
