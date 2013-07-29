@@ -6,11 +6,12 @@ typedef struct bfid_command {
 	char *help;
 	char *usage;
 	bfid_func_t func;
+	struct bfid_command *next;
 } bfid_cmd_t;
 
 int bfid_initialized = 0;
 int bfid_cmd_no = 0;
-bfid_cmd_t *bfid_cmds;
+bfid_cmd_t *bfid_cmds = NULL;
 
 bfid_brkp_t *brkp_list = NULL;
 int brkp_no = 0;
@@ -30,6 +31,7 @@ int bfid_trace( bf_code_t *dbf, int argc, char **argv );
 int bfid_break( bf_code_t *dbf, int argc, char **argv );
 int bfid_clear( bf_code_t *dbf, int argc, char **argv );
 int bfid_script( bf_code_t *dbf, int argc, char **argv );
+int bfid_alias( bf_code_t *dbf, int argc, char **argv );
 
 int debug_signal( int s );
 
@@ -39,20 +41,26 @@ int debug_signal( int s ){
 	return 0;
 }
 
-void register_bfid_func( char *name, char *help, char *usage, bfid_func_t function ){
-	if ( bfid_cmd_no >= 32 )
-		return;
+void register_bfid_func( char *name, char *help, 
+			 char *usage, bfid_func_t function )
+{
 
-	bfid_cmds[ bfid_cmd_no ].name = name;
-	bfid_cmds[ bfid_cmd_no ].help = help;
-	bfid_cmds[ bfid_cmd_no ].usage = usage;
-	bfid_cmds[ bfid_cmd_no ].func = function;
-	
-	bfid_cmd_no++;
+	bfid_cmd_t 	*move = new( bfid_cmd_t ),
+			*temp;
+
+	move->name 	= name;
+	move->help 	= help;
+	move->usage 	= usage;
+	move->func 	= function;
+	move->next	= NULL;
+
+	if ( !bfid_cmds )
+		bfid_cmds = move;
+	else {
+		for ( temp = bfid_cmds; temp->next; temp = temp->next );
+		temp->next = move;
+	}
 }
-
-// temporary fixed value for now
-#define BP_SIZE 8
 
 void add_breakp( bfid_brkp_t **b, int type, int val ){
 	bfid_brkp_t *temp, *move, *prev;
@@ -109,8 +117,6 @@ void del_breakp( bfid_brkp_t **b, int val ){
 }
 
 void bfid_init( ){
-	bfid_cmds = new( bfid_cmd_t[32] );
-	
 	// look at program data
 	register_bfid_func( "dump", "dump program memory", 
 			"dump [amount] | dump [start] [end]", bfid_dump );
@@ -137,6 +143,8 @@ void bfid_init( ){
 
 	register_bfid_func( "script", "run a debugger script", 
 			"script [filename]", bfid_script );
+	register_bfid_func( "alias", "create an alias for a debugger command", 
+			"alias [alias] [command]", bfid_alias );
 
 	register_bfid_func( "exit", "exit the debugger. Resumes execution if "
 			"the debugger was started from the code.", "exit", bfid_exit );
@@ -144,10 +152,13 @@ void bfid_init( ){
 	// help function
 	register_bfid_func( "help", "Get help for debugger commands", "help [command]", bfid_help );
 	register_bfid_func( "man", "Get help for debugger commands", "man [command]", bfid_help );
+
+	bfid_initialized = 1;
 }
 
 int bfid_execcmd( bf_code_t *dbf, char *str ){
 	int i, argc, slen, found;
+	bfid_cmd_t *move;
 
 	found = argc = 0;
 	slen = strlen( str );
@@ -165,10 +176,10 @@ int bfid_execcmd( bf_code_t *dbf, char *str ){
 			buf[i] = 0;
 	}
 
-	for ( i = 0; i < bfid_cmd_no; i++ ){
-		if ( strcmp( args[0], bfid_cmds[i].name ) == 0 ){
+	for ( move = bfid_cmds; move; move = move->next ){
+		if ( strcmp( args[0], move->name ) == 0 ){
 			found = 1;
-			return bfid_cmds[i].func( dbf, argc, args );
+			return move->func( dbf, argc, args );
 		}
 	}
 
@@ -184,10 +195,8 @@ int bf_debugger( bf_code_t *bf ){
 	int lret = 0;
 	bfid_brkp_t *temp;
 
-	if ( !bfid_initialized ){
+	if ( !bfid_initialized )
 		bfid_init( );
-		bfid_initialized = 1;
-	}
 
 	dbf->debugging = 1;
 	interrupted = 1;
@@ -289,7 +298,10 @@ int bfid_dump( bf_code_t *dbf, int argc, char **argv ){
 		if (!(( i - l ) % 8 ))
 			printf( "  ", i );
 
-		printf( "%02x ", dbf->mem[i] & 0xff );
+		if ( dbf->mem[i] )
+			printf( "%02x ", dbf->mem[i] & 0xff );
+		else
+			printf( "   " );
 	}
 	printf( "\n" );
 
@@ -540,21 +552,54 @@ int bfid_script( bf_code_t *dbf, int argc, char **argv ){
 	return 0;
 }
 
+int bfid_alias( bf_code_t *dbf, int argc, char **argv ){
+	if ( argc < 3 ){
+		printf( "usage: %s [alias] [command]\n", argv[0] );
+		printf( "Creates an alias for a debugger command.\n" );
+		return 1;
+	}
+
+	int i;
+	bfid_cmd_t *temp = NULL, *move;
+
+	for ( move = bfid_cmds; move; move = move->next ){
+		if ( strcmp( move->name, argv[1] ) == 0 ){
+			printf( "Command \"%s\" already exists\n", argv[1] );
+			return 2;
+		} else if ( strcmp( move->name, argv[2] ) == 0 ){
+			temp = move;
+		}
+	}
+
+	if ( !temp ){
+		printf( "Invalid command name.\n" );
+		return 1;
+	}
+
+	printf( "Registering \"%s\"...\n", argv[1] );
+	char *buf = strdup( argv[1] );
+
+	register_bfid_func( buf, temp->help, temp->usage, temp->func );
+	return 0;
+}
+
+
 int bfid_help( bf_code_t *dbf, int argc, char **argv ){
+	bfid_cmd_t *move;
 	int i;
 	if ( argc < 2 ){
 		printf( "usage: %s [command]\n", argv[0] );
 		printf( "commands: \n" );
-		for ( i = 0; i < bfid_cmd_no; i++ )
-			printf( "\t%s\t%s\n", bfid_cmds[i].name, bfid_cmds[i].help );
+		for ( move = bfid_cmds; move; move = move->next )
+			printf( "\t%s\t%s\n", move->name, move->help );
 
 		return 1;
 	}
 
-	for ( i = 0; i < bfid_cmd_no; i++ ){
-		if ( strcmp( argv[1], bfid_cmds[i].name ) == 0 ){
-			printf( "%s\n", bfid_cmds[i].help );
-			printf( "Usage: %s\n", bfid_cmds[i].usage );
+	for ( move = bfid_cmds; move; move = move->next ){
+		if ( strcmp( argv[1], move->name ) == 0 ){
+			printf( "%s\n", move->help );
+			printf( "Usage: %s\n", move->usage );
 			break;
 		}
 	}
