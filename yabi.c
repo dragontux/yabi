@@ -86,11 +86,12 @@ int bf_run( bf_code_t *bf ){
 }
 
 void bf_help( ){
-	printf( "usage: yabi [-f file] [-dh]\n"
+	printf( "usage: yabi [-fio file] [-mc size] [-dnh]\n"
 		"	-f  specify input code file\n"
 		"	-i  file to use as input for program\n"
 		"	-o  file to send program output to\n"
-		"	-d  debug the program instead of run it\n" 
+		"	-m  set memory size\n"
+		"	-d  debug the program\n" 
 		"	-h  print this help and exit\n" );
 	return;
 }
@@ -98,8 +99,9 @@ void bf_help( ){
 int main( int argc, char *argv[] ){
 	struct stat sb;
 	bf_code_t *bf;
-	int d_memsize = 0x10000;
+	int d_memsize = 30000;
 	int d_loops = 0x1000;
+	int d_csize = 1;
 	FILE *fp;
 
 	char *filename = NULL;
@@ -109,7 +111,7 @@ int main( int argc, char *argv[] ){
 	char debug = 0;
 	int i = 0;
 
-	while (( ch = getopt( argc, argv, "f:i:o:dh" )) != -1 && i++ < argc ){
+	while (( ch = getopt( argc, argv, "f:i:o:m:dh" )) != -1 && i++ < argc ){
 		switch( ch ){
 			case 'f':
 				filename = argv[++i];
@@ -126,6 +128,9 @@ int main( int argc, char *argv[] ){
 			case 'h':
 				bf_help( );
 				exit( 0 );
+				break;
+			case 'm':
+				d_memsize = atoi( argv[++i] );
 				break;
 		}
 	}

@@ -11,12 +11,6 @@
 
 #define new( n ) (memset( malloc( sizeof( n )), 0, sizeof( n )))
 
-enum {
-	BRK_IP,
-	BRK_MEM,
-	BRK_INSTR
-};
-
 typedef struct bf_code {
 	FILE *in, *out;
 	char *mem;
@@ -34,14 +28,6 @@ typedef struct bf_code {
 	unsigned int debugging;
 	unsigned int execed;
 } bf_code_t;
-
-typedef struct bfid_breakpoint {
-	int val;
-	int i;
-	struct bfid_breakpoint *next;
-	struct bfid_breakpoint *prev;
-	int type;
-} bfid_brkp_t;
 
 int bf_interp( bf_code_t *bf );
 int bf_step( bf_code_t *bf );
