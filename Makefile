@@ -1,13 +1,15 @@
 CC=gcc
 CFLAGS=
 
-all: objs yabibin
+all: makestuff
 
-objs:
-	gcc -c yabid.c
+OBJS=$(patsubst %.c,%.o,$(wildcard *c))
 
-yabibin:
-	gcc -o yabi yabi.c yabid.o
+%.o : %.c
+	$(CC) $(CFLAGS) -c $<
+
+makestuff: $(OBJS)
+	gcc $(CFLAGS) -o yabi $(OBJS)
 
 clean:
 	rm *.o
