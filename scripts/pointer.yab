@@ -1,0 +1,18 @@
+# Implements a simple pointer instruction, which sets the memory pointer
+# to the address in the current cell.
+#
+# differs from the "goto" script just by one command, 
+#     "set ptr $?" instead of "set ip $?".
+
+echo Loading pointer script...
+
+set point "p"
+
+break in $point
+set breakp $?
+
+hook $breakp "cont"
+hook $breakp "peek mem $ptr"
+hook $breakp "set ptr $?"
+
+echo Done.

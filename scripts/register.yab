@@ -1,0 +1,29 @@
+# Implements a single register, which sets the regiter variable
+# to the value in the current cell.
+#
+# Uses poke to set memory values.
+
+echo Loading pointer script...
+
+set reg "r"
+
+break in $reg
+set breakp $?
+
+hook $breakp "cont"
+hook $breakp "peek mem $ptr"
+hook $breakp "set regval $?"
+
+echo Set r as set register...
+
+set getreg "R"
+
+break in $getreg
+set breakp $?
+set regval 0
+
+hook $breakp "cont"
+hook $breakp "poke mem $ptr $regval"
+
+echo Set R as get register...
+echo Done.

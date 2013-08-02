@@ -1,0 +1,15 @@
+# Implements a simple goto instruction, which jumps to
+# the address in the current cell.
+
+echo Loading goto script...
+
+set goto "g"
+
+break in $goto
+set breakp $?
+
+hook $breakp "cont"
+hook $breakp "peek mem $ptr"
+hook $breakp "set ip $?"
+
+echo Done loading.

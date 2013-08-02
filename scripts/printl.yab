@@ -1,0 +1,13 @@
+# Implements a debugging printer, which prints the current cell value
+# any time it hits a left bracket (loop start)
+
+echo Loading printer script...
+
+break in [
+set breakp $?
+
+hook $breakp "cont"
+hook $breakp "peek mem $ptr"
+hook $breakp "echo current cell: $?"
+
+echo Done.
